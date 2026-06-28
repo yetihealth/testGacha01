@@ -1,0 +1,363 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>體態診斷卡 - 手機版閃卡 demo</title>
+<style>
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+
+  body {
+    margin: 0;
+    min-height: 100vh;
+    background: #1c1c1e;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 18px;
+    padding: 50px 20px;
+    font-family: -apple-system, "PingFang TC", "Microsoft JhengHei", sans-serif;
+    color: #eaeaea;
+  }
+
+  .style-switch { display: flex; gap: 8px; background: #2a2a2c; padding: 4px; border-radius: 999px; }
+  .style-switch button { border: none; background: transparent; color: #9a9a9a; font-size: 13px; padding: 7px 16px; border-radius: 999px; cursor: pointer; }
+  .style-switch button.active { background: #fafafa; color: #1c1c1e; font-weight: 600; }
+
+  .note { max-width: 320px; font-size: 12px; line-height: 1.7; color: #9a9a9a; text-align: center; }
+
+  .stage { width: 280px; height: 420px; perspective: 900px; position: relative; touch-action: none; }
+
+  .card {
+    position: relative; width: 100%; height: 100%; border-radius: 18px;
+    background: #2a2a2c; border: 1px solid #3d3d3f; overflow: hidden;
+    padding: 22px; display: flex; flex-direction: column; gap: 14px;
+    transition: border-color 0.3s ease, transform 0.12s ease-out;
+    transform-style: preserve-3d; will-change: transform;
+  }
+  .card.rare { border: 2px solid #e8c46a; }
+
+  .card.style-rainbow.rare::before {
+    content: ""; position: absolute; inset: 0; z-index: 1; pointer-events: none;
+    background: repeating-linear-gradient(115deg, #ff6ec4 0%, #7873f5 14%, #4ade80 28%, #facc15 42%, #4ddbff 56%, #ff6ec4 70%);
+    background-size: 250% 250%;
+    background-position: var(--holo-x, 50%) var(--holo-y, 50%);
+    mix-blend-mode: color-dodge; opacity: 0.5;
+    animation: holoDrift 7s ease-in-out infinite;
+  }
+  @keyframes holoDrift { 0%, 100% { background-position: 20% 20%; } 50% { background-position: 80% 80%; } }
+
+  .card.style-tilt.rare::after {
+    content: ""; position: absolute; inset: 0; z-index: 1; pointer-events: none;
+    background: radial-gradient(circle at var(--holo-x, 50%) var(--holo-y, 50%), rgba(255,255,255,0.45), rgba(232,196,106,0.15) 40%, transparent 65%);
+  }
+
+  @media (prefers-reduced-motion: reduce) { .card.style-rainbow.rare::before { animation: none; } }
+
+  .card.pulling-in { animation: cardIn 0.55s ease-out; }
+  @keyframes cardIn {
+    0% { transform: scale(0.82) rotateZ(-2deg); opacity: 0; }
+    60% { transform: scale(1.05) rotateZ(0.5deg); opacity: 1; }
+    100% { transform: scale(1) rotateZ(0deg); }
+  }
+
+  /* 持續循環的光環,常見卡跟稀有卡都有,強度跟顏色不同 */
+  .card.halo-common {
+    animation: haloCommon 2.8s ease-in-out infinite;
+  }
+  @keyframes haloCommon {
+    0%, 100% { box-shadow: 0 0 0 rgba(255,255,255,0); }
+    50% { box-shadow: 0 0 16px rgba(255,255,255,0.22); }
+  }
+
+  .card.halo-rare {
+    animation: haloRare 2.2s ease-in-out infinite;
+  }
+  @keyframes haloRare {
+    0%, 100% { box-shadow: 0 0 0 rgba(232,196,106,0); }
+    50% { box-shadow: 0 0 46px rgba(232,196,106,0.75); }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .card.halo-common, .card.halo-rare { animation: none; }
+  }
+
+  /* 進場動畫跟光環同時存在時,要合併寫成同一條 animation,
+     否則後面定義的規則會把前面的 animation 簡寫整個蓋掉 */
+  .card.pulling-in.halo-common { animation: cardIn 0.55s ease-out, haloCommon 2.8s ease-in-out infinite; }
+  .card.pulling-in.halo-rare { animation: cardIn 0.55s ease-out, haloRare 2.2s ease-in-out infinite; }
+
+  .shine-sweep {
+    position: absolute; inset: -20% -40%; z-index: 4;
+    background: linear-gradient(100deg, transparent 42%, rgba(255,255,255,0.6) 50%, transparent 58%);
+    transform: translateX(-130%); animation: sweep 0.65s ease-out forwards; pointer-events: none;
+  }
+  @keyframes sweep { to { transform: translateX(130%); } }
+
+  /* 噴發時的中心閃光,附加在 stage 上,跟粒子一起出現 */
+  .spark-flash {
+    position: absolute; width: 70%; height: 70%; left: 50%; top: 50%;
+    transform: translate(-50%, -50%) scale(0.6);
+    border-radius: 50%; pointer-events: none; z-index: 4;
+    background: radial-gradient(circle, rgba(255,255,255,0.9), rgba(232,196,106,0.4) 45%, transparent 72%);
+    opacity: 0;
+    animation: flashPop 0.5s ease-out forwards;
+  }
+  @keyframes flashPop {
+    0% { opacity: 0; transform: translate(-50%, -50%) scale(0.5); }
+    30% { opacity: 1; transform: translate(-50%, -50%) scale(1.1); }
+    100% { opacity: 0; transform: translate(-50%, -50%) scale(1.7); }
+  }
+
+  /* 粒子噴發到卡片外面,不被卡片邊框裁掉,附加在 stage 上 */
+  .spark {
+    position: absolute; left: 50%; top: 50%; border-radius: 50%;
+    pointer-events: none; z-index: 5;
+    animation: sparkFly var(--dur, 0.8s) ease-out forwards;
+  }
+  @keyframes sparkFly {
+    0% { transform: translate(-50%, -50%) scale(1) rotate(0deg); opacity: 1; }
+    100% { transform: translate(calc(-50% + var(--dx)), calc(-50% + var(--dy))) scale(0) rotate(200deg); opacity: 0; }
+  }
+
+  .top-row { position: relative; z-index: 2; display: flex; justify-content: space-between; align-items: center; font-size: 12px; color: #9a9a9a; }
+  .body-icon { position: relative; z-index: 2; height: 110px; border-radius: 10px; background: #232325; display: flex; align-items: center; justify-content: center; font-size: 36px; }
+  .title-block { position: relative; z-index: 2; }
+  .title-block .name { font-size: 17px; font-weight: 600; margin: 0 0 4px; }
+  .title-block .sub { font-size: 12px; color: #9a9a9a; margin: 0; }
+  .diagnosis-text { position: relative; z-index: 2; font-size: 13px; line-height: 1.65; color: #c8c8c8; margin: 0; flex: 1; }
+  .footer-row { position: relative; z-index: 2; display: flex; justify-content: space-between; align-items: center; border-top: 1px solid #3d3d3f; padding-top: 10px; }
+  .badge { font-size: 11px; padding: 4px 10px; border-radius: 6px; background: #3a3a3c; color: #c8c8c8; }
+  .badge.rare { background: #4a3f1f; color: #e8c46a; }
+  .card-no { font-size: 11px; color: #6a6a6a; }
+
+  .btn-row { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; }
+  button.draw-btn, button.gyro-btn {
+    padding: 10px 22px; border-radius: 999px; border: none; font-size: 14px; font-weight: 600; cursor: pointer;
+  }
+  button.draw-btn { background: #fafafa; color: #1c1c1e; }
+  button.gyro-btn { background: #3a3a3c; color: #eaeaea; }
+  button.gyro-btn.on { background: #4a3f1f; color: #e8c46a; }
+  button:active { transform: scale(0.97); }
+
+  .gyro-hint { font-size: 11px; color: #6a6a6a; text-align: center; }
+</style>
+</head>
+<body>
+
+  <div class="style-switch" id="styleSwitch">
+    <button data-style="rainbow" class="active">彩虹斜紋</button>
+    <button data-style="tilt">3D 視差光斑</button>
+  </div>
+
+  <div class="stage" id="stage">
+    <div class="card style-rainbow" id="card">
+      <div class="top-row"><span>體態代償診斷卡</span><span id="rarityIcon">●</span></div>
+      <div class="body-icon" id="bodyIcon">🧍</div>
+      <div class="title-block">
+        <p class="name" id="cardName">髂腰肌緊繃代償型</p>
+        <p class="sub" id="cardSub">髖屈肌 · 骨盆前側</p>
+      </div>
+      <p class="diagnosis-text" id="cardText">你的骨盆容易被往前拉,走路的時候下背常常默默幫忙出力。</p>
+      <div class="footer-row"><span class="badge" id="cardBadge">限定卡</span><span class="card-no" id="cardNo">No.014</span></div>
+    </div>
+  </div>
+
+  <div class="btn-row">
+    <button class="draw-btn" id="drawBtn">抽一張卡</button>
+    <button class="gyro-btn" id="gyroBtn">啟用傾斜效果</button>
+  </div>
+  <p class="gyro-hint" id="gyroHint">手機可直接觸控拖曳卡片,或按上面按鈕啟用陀螺儀傾斜</p>
+
+  <p class="note">
+    觸控拖曳:手指放在卡片上滑動,卡片跟著手指傾斜。<br>
+    陀螺儀:啟用後直接傾斜手機,不用碰卡片就會傾斜跟反光,手感最接近真實閃卡。<br>
+    iOS 規定陀螺儀必須使用者主動按按鈕授權才能讀取,這是系統限制不是 bug。
+  </p>
+
+<script>
+  const RARE_CHANCE = 0.3;
+
+  const diagnosisPool = [
+    { icon: "🧍", name: "髂腰肌緊繃代償型", sub: "髖屈肌 · 骨盆前側", text: "你的骨盆容易被往前拉,走路的時候下背常常默默幫忙出力。", no: "No.014" },
+    { icon: "🚶", name: "圓肩代償型", sub: "前鋸肌 · 肩胸前側", text: "你的肩膀容易往前卡,抬手的時候上斜方肌會搶著出力。", no: "No.027" },
+    { icon: "🦶", name: "足弓塌陷代償型", sub: "脛後肌 · 足內側", text: "落地的時候內側容易塌,膝蓋會被往內帶一點。", no: "No.033" }
+  ];
+
+  const card = document.getElementById("card");
+  const stage = document.getElementById("stage");
+  const gyroBtn = document.getElementById("gyroBtn");
+  const gyroHint = document.getElementById("gyroHint");
+  let currentStyle = "rainbow";
+  let gyroOn = false;
+  let baseBeta = null, baseGamma = null;
+
+  function clamp(v, min, max) { return Math.max(min, Math.min(max, v)); }
+
+  document.getElementById("styleSwitch").addEventListener("click", (e) => {
+    const btn = e.target.closest("button");
+    if (!btn) return;
+    document.querySelectorAll(".style-switch button").forEach(b => b.classList.remove("active"));
+    btn.classList.add("active");
+    card.classList.remove("style-rainbow", "style-tilt");
+    currentStyle = btn.dataset.style;
+    card.classList.add("style-" + currentStyle);
+    card.style.transform = "";
+  });
+
+  // 桌機滑鼠
+  stage.addEventListener("mousemove", (e) => {
+    if (card.classList.contains("pulling-in")) return;
+    applyPointer(e.clientX, e.clientY);
+  });
+  stage.addEventListener("mouseleave", resetTilt);
+
+  // 手機觸控拖曳
+  stage.addEventListener("touchmove", (e) => {
+    if (card.classList.contains("pulling-in")) return;
+    const t = e.touches[0];
+    if (t) applyPointer(t.clientX, t.clientY);
+  }, { passive: true });
+  stage.addEventListener("touchend", resetTilt);
+
+  function applyPointer(clientX, clientY) {
+    const rect = card.getBoundingClientRect();
+    const x = ((clientX - rect.left) / rect.width) * 100;
+    const y = ((clientY - rect.top) / rect.height) * 100;
+    card.style.setProperty("--holo-x", x + "%");
+    card.style.setProperty("--holo-y", y + "%");
+    if (currentStyle === "tilt") {
+      const rotateY = ((x - 50) / 50) * 12;
+      const rotateX = -((y - 50) / 50) * 12;
+      card.style.transform = `perspective(900px) rotateX(${rotateX}deg) rotateY(${rotateY}deg)`;
+    }
+  }
+
+  function resetTilt() {
+    if (currentStyle === "tilt" && !gyroOn) {
+      card.style.transform = "perspective(900px) rotateX(0deg) rotateY(0deg)";
+    }
+  }
+
+  // 陀螺儀傾斜
+  function handleOrientation(e) {
+    if (currentStyle !== "tilt") return;
+    if (e.beta === null || e.gamma === null) return;
+    if (baseBeta === null) { baseBeta = e.beta; baseGamma = e.gamma; }
+    const dBeta = e.beta - baseBeta;
+    const dGamma = e.gamma - baseGamma;
+    const rotateX = clamp(dBeta * 0.6, -14, 14) * -1;
+    const rotateY = clamp(dGamma * 0.6, -14, 14);
+    card.style.transform = `perspective(900px) rotateX(${rotateX}deg) rotateY(${rotateY}deg)`;
+    card.style.setProperty("--holo-x", (50 + clamp(dGamma, -40, 40)) + "%");
+    card.style.setProperty("--holo-y", (50 + clamp(dBeta, -40, 40)) + "%");
+  }
+
+  gyroBtn.addEventListener("click", () => {
+    if (gyroOn) {
+      window.removeEventListener("deviceorientation", handleOrientation);
+      gyroOn = false;
+      gyroBtn.classList.remove("on");
+      gyroBtn.textContent = "啟用傾斜效果";
+      gyroHint.textContent = "已關閉陀螺儀,改用觸控拖曳卡片";
+      resetTilt();
+      return;
+    }
+
+    const start = () => {
+      baseBeta = null; baseGamma = null;
+      window.addEventListener("deviceorientation", handleOrientation);
+      gyroOn = true;
+      gyroBtn.classList.add("on");
+      gyroBtn.textContent = "關閉傾斜效果";
+      gyroHint.textContent = "現在直接傾斜手機,卡片會跟著反光";
+    };
+
+    if (typeof DeviceOrientationEvent !== "undefined" && typeof DeviceOrientationEvent.requestPermission === "function") {
+      DeviceOrientationEvent.requestPermission().then((res) => {
+        if (res === "granted") start();
+        else gyroHint.textContent = "沒有取得授權,改用觸控拖曳卡片";
+      }).catch(() => { gyroHint.textContent = "這個瀏覽器不支援,改用觸控拖曳卡片"; });
+    } else if (window.DeviceOrientationEvent) {
+      start();
+    } else {
+      gyroHint.textContent = "這個裝置不支援陀螺儀,改用觸控拖曳卡片";
+    }
+  });
+
+  function spawnSparks(count) {
+    // 中心閃光,附加在 stage 上,不會被卡片的 overflow:hidden 裁掉
+    const flash = document.createElement("div");
+    flash.className = "spark-flash";
+    stage.appendChild(flash);
+    flash.addEventListener("animationend", () => flash.remove());
+
+    const colors = ["#e8c46a", "#fff3d0", "#ffe9a8", "#ffffff"];
+
+    for (let i = 0; i < count; i++) {
+      const s = document.createElement("span");
+      s.className = "spark";
+      const angle = Math.random() * 360;
+      const dist = 70 + Math.random() * 90; // 加大噴射距離,飛到卡片外面
+      const size = 4 + Math.random() * 7; // 大小不一,看起來更有層次
+      const dur = 0.6 + Math.random() * 0.5;
+      const color = colors[Math.floor(Math.random() * colors.length)];
+
+      s.style.width = size + "px";
+      s.style.height = size + "px";
+      s.style.background = color;
+      s.style.boxShadow = `0 0 ${Math.round(size * 1.8)}px ${color}`;
+      s.style.setProperty("--dx", Math.cos(angle * Math.PI / 180) * dist + "px");
+      s.style.setProperty("--dy", Math.sin(angle * Math.PI / 180) * dist + "px");
+      s.style.setProperty("--dur", dur + "s");
+
+      stage.appendChild(s);
+      s.addEventListener("animationend", () => s.remove());
+    }
+  }
+
+  function drawCard() {
+    const d = diagnosisPool[Math.floor(Math.random() * diagnosisPool.length)];
+    const isRare = Math.random() < RARE_CHANCE;
+
+    document.getElementById("bodyIcon").textContent = d.icon;
+    document.getElementById("cardName").textContent = d.name;
+    document.getElementById("cardSub").textContent = d.sub;
+    document.getElementById("cardText").textContent = d.text;
+    document.getElementById("cardNo").textContent = d.no;
+
+    const badge = document.getElementById("cardBadge");
+    const icon = document.getElementById("rarityIcon");
+    card.classList.toggle("rare", isRare);
+    badge.classList.toggle("rare", isRare);
+    badge.textContent = isRare ? "隱藏稀有" : "限定卡";
+    icon.textContent = isRare ? "★" : "●";
+
+    // 持續循環的光環,常見卡跟稀有卡都有,不會隨進場動畫結束就消失
+    card.classList.remove("halo-common", "halo-rare");
+    card.classList.add(isRare ? "halo-rare" : "halo-common");
+
+    card.classList.remove("pulling-in");
+    void card.offsetWidth;
+    card.classList.add("pulling-in");
+
+    const sweep = document.createElement("div");
+    sweep.className = "shine-sweep";
+    card.appendChild(sweep);
+    sweep.addEventListener("animationend", () => sweep.remove());
+
+    if (isRare) spawnSparks(26);
+
+    card.addEventListener("animationend", function handler() {
+      card.classList.remove("pulling-in");
+      card.removeEventListener("animationend", handler);
+    }, { once: true });
+  }
+
+  document.getElementById("drawBtn").addEventListener("click", drawCard);
+  drawCard();
+</script>
+
+</body>
+</html>
